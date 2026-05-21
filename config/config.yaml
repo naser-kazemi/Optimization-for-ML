@@ -1,0 +1,40 @@
+# Default Configuration for OptML Optimizer Geometry Experiments
+
+# Model configuration
+model:
+  depth: 8
+  aspect_ratio: 64
+  head_dim: 64
+  max_seq_len: 1024
+  vocab_size: 8192
+
+# Dataset configuration
+dataset:
+  name: "dclm-edu" # Options: "dclm-edu", "pleias-synth"
+  num_train_docs: 50000
+  num_val_docs: 2000
+
+# Training configuration
+training:
+  device: "auto" # Options: "auto", "cpu", "cuda", "mps"
+  device_batch_size: 4
+  total_batch_size: 131072 # 2**17 = 131072
+  time_budget: 300 # in seconds
+  eval_interval: 50
+  seed: 42
+  use_wsd: false
+  quantize_grads: false
+
+# Optimizer configuration
+optimizer:
+  type: "adamw" # Options: "adamw", "muon", "sgd", "adam"
+  lr: 3e-4
+  muon_lr: 0.02
+  weight_decay: 0.1
+
+# Logging configuration
+logging:
+  use_wandb: false
+  wandb_project: "optml-optimizer-geometry"
+  wandb_entity: null
+  csv_log_path: "metrics.csv"
