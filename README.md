@@ -1,32 +1,102 @@
-# A notebook for LLM training
+# 📊 OptML: Transformer Loss Landscape Optimization & Curvature Dynamics
 
-The notebook will show you how to train a GPT2-like model from scratch, in a reasonable time, and without needing a whole compute cluster.
-You can modify the optimizers to see how different optimizers (such as from PyTorch) behave during the training.
+This repository contains our modular framework for the **Optimization for Machine Learning (OptML)** miniproject, focusing on transformer training dynamics, learning rate scheduling variations, preconditioning, gradient quantization, and empirical loss landscape geometry. 
 
-For some similar resources, see also 
-- https://github.com/KellerJordan/modded-nanogpt/tree/master/records/track_3_optimization (speed run competition for optimizers, highly recommended)
-- https://github.com/karpathy/autoresearch (same but in a loop for agent-assisted edits of the recipe)
-- https://github.com/epfml/llm-baselines (based on nanoGPT as above, with some useful hyperparameters)
+We have refactored a monolithic notebook baseline into a premium, command-line-driven, and highly parameterized codebase decorated with Meta's **Hydra** configurations. This architecture is designed to monitor, track, and visualize training metrics alongside deep loss landscape traits like the dominant Hessian eigenvalue ($\lambda_{max}$) and optimizer step alignment.
 
-We recommend running this notebook on the EPFL RCP or scitas clusters, with a single A100 GPU (smaller or older GPUs can work as well), or alternatively on. Here is an example how to submitting an RCP interactive training job. Do not forget to kill the runai job after use, as the GPU hour costs money and competes for resources with other researchers:
+---
+
+## 📂 Repository Architecture
+
+The codebase is organized as follows:
 
 ```
-runai submit \
-        --name <pod-name> \
-        --interactive \
-        --image ic-registry.epfl.ch/ivrl/pajouheshgar/pytorch2.1jax:cuda12.1v1 \ # An example of the image, good starting point.
-        --gpu 1 \
-        --large-shm \
-        --node-pools default \
-        --existing-pvc claimname=<>,path=<> \
-        --environment CLUSTER_USER=<user_name> \
-        --environment CLUSTER_USER_ID=<user_id> \
-        --environment CLUSTER_GROUP_NAME=<group_name> \
-        --environment CLUSTER_GROUP_ID=<group_id> \
-        --command \
-        -- /bin/bash -c 'source /opt/lab/setup.sh && pip install --upgrade jupyterlab && pip install -U "packaging>=23.2" && su <user_name> -c "jupyter lab --ip=0.0.0.0 --no-browser --notebook-dir=/"'
+[Project Root]/
+├── config/
+│   └── config.yaml          # Meta's Hydra configurations (optimizers, schedules, devices, etc.)
+├── optim/
+│   ├── wsd_scheduler.py     # Warmup-Stable-Decay (WSD) scheduler
+│   └── quantization.py      # INT8 backward gradient quantization hook simulator
+├── reports/
+│   ├── project_report.md    # Comprehensive Implementation Report
+│   ├── generate_plots.py    # Automated visualization rendering engine
+│   ├── loss_curves.png      # Loss, perplexity & WSD schedule chart
+│   └── hessian_geometry.png # Lambda_max & step cosine alignment chart
+├── utils/
+│   ├── hvp.py               # Hessian-Vector Product (HVP) and Power Iteration engine
+│   ├── metrics.py           # Update/eigenvector cosine alignment metrics
+│   └── logging.py           # Unified CSV & Weights & Biases (wandb) logger
+├── data.py                  # DCLM-Edu streaming & tokenizer compilation pipeline
+├── models.py                # GPT architecture (RoPE, Value Embeddings, residual gates)
+├── train.py                 # Primary training entry point (Hydra decorated)
+├── install.sh               # Dependency installer
+├── proposal.md              # Research proposal
+├── README.md                # [This File] Project guide
+└── metrics.csv              # step-by-step local logged metrics
 ```
 
-The information for filling out the blank fields will come with the RCP access. We provide an install.sh file for necessary dependencies. 
+---
 
-The notebook could also be run on a Google Colab environment, or in the EPFL gnoto.epfl.ch system (you have access). However, the free session of Colab only supports a T4 GPU, and it will be slow to run the training on it.
+## 🛠️ Implemented Features
+
+### 1. Robust Parametrization (Meta's Hydra Config)
+Decoupled hardcoded values into `config/config.yaml`. Supports command-line overrides (e.g. `optimizer.type=muon`, `training.quantize_grads=true`) without modifying source scripts.
+
+### 2. Warmup-Stable-Decay (WSD) Scheduler
+Implements a multi-stage training schedule under `optim/wsd_scheduler.py` consisting of:
+* A linear warmup to target learning rate.
+* A stable phase where peak learning rate is maintained.
+* A sharp cosine decay (warmdown) phase down to a configured fractional minimum.
+
+### 3. Hessian Curvature Geometry Tracker
+Tracks the structural landscape of the loss function in real-time under `utils/hvp.py` and `utils/metrics.py`:
+* **Hessian-Vector Products (HVP):** Reverse-over-reverse double autograd directly over the model's unified forward loss graph.
+* **Power Iteration:** Estimates the top eigenvalue ($\lambda_{max}$) and eigenvector ($v_{max}$) of the parameter Hessian.
+* **Optimizer Step Alignment:** Computes the cosine similarity $\cos(\Delta\theta, v_{max})$ between the actual parameter step ($\Delta\theta = \theta_{t+1} - \theta_t$) and the dominant high-curvature direction.
+
+### 4. Low-Precision Simulated Quantization Hook
+Simulates low-precision (INT8) gradients using custom PyTorch backward hooks (`optim/quantization.py`) registered to parameters, evaluating implicit regularization effects.
+
+### 5. Automated Visualization Suite
+Includes a Python plotting engine (`reports/generate_plots.py`) that reads local `metrics.csv` files, isolates training runs, and outputs publication-quality performance graphs under `reports/`.
+
+---
+
+## 🚀 Getting Started
+
+### 1. Installation
+To install the required dependencies (such as Hydra, Matplotlib, and Tokenizers) in your active conda environment, run:
+```bash
+bash install.sh
+```
+
+### 2. Local Validation Run
+To run an ultra-lightweight training check on your local machine using Apple Silicon GPU (`mps`) or CPU:
+```bash
+python train.py training.device=mps training.time_budget=5 training.eval_interval=1 dataset.num_train_docs=100 dataset.num_val_docs=10 training.total_batch_size=2 training.device_batch_size=2
+```
+
+### 3. Cluster Deployment
+For full-scale high-performance sweeps on NVIDIA GPUs, Hydra enables clean overrides:
+* **AdamW Baseline:**
+  ```bash
+  python train.py optimizer.type=adamw training.device=cuda logging.use_wandb=true
+  ```
+* **Muon Preconditioned Sweep:**
+  ```bash
+  python train.py optimizer.type=muon training.device=cuda logging.use_wandb=true
+  ```
+* **Gradient Quantization Sweep:**
+  ```bash
+  python train.py training.quantize_grads=true training.device=cuda logging.use_wandb=true
+  ```
+
+---
+
+## 📈 Empirical Insights
+
+For a detailed analysis of our training results, including the validation trajectories showing WSD schedule transitions and loss landscape relaxation during the cosine decay warmdown phase, see our comprehensive [reports/project_report.md](reports/project_report.md) file.
+
+### Figure Previews:
+* **Loss & Perplexity Curves:** Track the Warmup, Stable, and Decay phases on training/validation curves.
+* **Hessian Geometry:** Analyze the spikes and drops of Hessian curvature sharpness ($\lambda_{max}$) and optimizer alignment patterns.
