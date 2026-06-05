@@ -7,21 +7,26 @@ def compute_hvp_reverse_over_reverse(model, data, targets, v):
     data: input tokens (e.g. B, T)
     targets: target tokens (e.g. B, T)
     v: list of tensors representing the vector v (same shape as model parameters)
+
+    Note: Disables flash/efficient attention during computation since those
+    kernels don't support second-order gradients.
     """
     params = [p for p in model.parameters() if p.requires_grad]
-    
+
     # We must explicitly enable gradients to construct the computational graph,
     # as this function is often called within no_grad() evaluation blocks.
-    with torch.enable_grad():
+    # Disable efficient attention backends that don't support double backward.
+    with torch.enable_grad(), \
+         torch.backends.cuda.sdp_kernel(enable_flash=False, enable_math=True, enable_mem_efficient=False):
         loss = model(data, targets=targets)
         grads = torch.autograd.grad(loss, params, create_graph=True, retain_graph=True)
-        
+
         # Compute dot product between gradients and v
         dot_product = sum([(g * v_).sum() for g, v_ in zip(grads, v)])
-        
+
         # Second backward pass to get HVP
         hvp = torch.autograd.grad(dot_product, params, retain_graph=True)
-        
+
     return hvp
 
 

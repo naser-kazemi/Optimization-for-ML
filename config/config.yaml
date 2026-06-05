@@ -17,9 +17,9 @@ dataset:
 # Training configuration
 training:
   device: "auto" # Options: "auto", "cpu", "cuda", "mps"
-  device_batch_size: 4
+  device_batch_size: 8
   total_batch_size: 131072 # 2**17 = 131072
-  time_budget: 300 # in seconds
+  time_budget: 12000 # in seconds
   eval_interval: 50
   seed: 42
   use_wsd: false
@@ -38,3 +38,12 @@ logging:
   wandb_project: "optml-optimizer-geometry"
   wandb_entity: null
   csv_log_path: "metrics.csv"
+  output_dir: "geometry_results"
+
+# Geometry tracking configuration
+geometry:
+  top_k_hessian: 20        # Number of top Hessian eigenvalues to compute
+  top_k_subspace: 10       # Number of top gradient singular vectors for subspace analysis
+  log_interval: 10         # Log per-layer metrics every N steps
+  hessian_interval: 50     # Compute full Hessian spectrum every N steps (expensive)
+  lanczos_iterations: 30   # Number of Lanczos iterations for eigenvalue estimation
