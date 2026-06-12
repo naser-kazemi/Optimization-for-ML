@@ -1,0 +1,81 @@
+# Configuration for the AutoNEB mode-connectivity experiment (connect.py).
+
+model:
+  depth: 4
+  aspect_ratio: 32
+  head_dim: 32
+  max_seq_len: 256
+  vocab_size: 4096
+
+dataset:
+  name: "dclm-edu"
+  num_train_docs: 20000
+  num_val_docs: 1000
+  cache_dir: "data_cache/"   # shared tokenizer + tokens across all runs
+
+training:
+  device: "auto"
+  device_batch_size: 4
+  total_batch_size: 16384
+  seed: 42
+
+optimizer:
+  type: "adamw"   # overridden per-endpoint (connect.optimizers)
+  lr: 3e-4
+  sgd_lr: 0.1
+  muon_lr: 0.02
+  adamns_lr: 3e-4      # NS on momentum
+  adamgradns_lr: 3e-4  # NS on gradient
+  adamupdns_lr: 0.02   # NS on update (orthonormal output -> muon-scale lr)
+  weight_decay: 0.1
+
+connect:
+  optimizers: ["adamw", "sgd", "muon", "adam", "adamns", "adamgradns", "adamupdns"]
+  seeds: [1, 2, 3]
+
+  # endpoint training: warmup -> stable lr until the measure-landscape loss
+  # plateaus -> decay tail. endpoint_steps is a hard cap.
+  endpoint_steps: 8000
+  endpoint_steps_per_opt: {}
+  endpoint_eval_every: 100
+  endpoint_patience: 5
+  endpoint_min_delta: 0.01
+  endpoint_warmup_steps: 100
+  endpoint_decay_steps: 500
+  endpoint_final_lr_frac: 0.1
+  endpoint_grad_clip: 1.0
+  endpoint_dir: "endpoints/"  # cache key = optimizer+seed+lr+step cap
+
+  within_pairs: true   # same optimizer, different seeds
+  cross_pairs: true    # different optimizers, rotated seeds
+
+  # fixed batch sets for measuring barriers (train + held-out val)
+  measure_batches: 16
+  val_batches: 16
+  measure_batch_size: 8
+  eval_seed: 1234
+
+  relax_batch_size: 8  # stochastic stream for NEB relaxation
+
+  weight_decay: 0.0
+  compute_saddle_curvature: true
+  power_iters: 10
+
+  autoneb:
+    n_pivots_interior: 7
+    cycles_lr: [0.01, 0.003]
+    steps_per_cycle: 200
+    momentum: 0.9
+    reparametrize_every: 1
+    insert_count: 2
+    insert_threshold: 0.10
+    max_pivots: 32
+    n_interp: 5
+
+logging:
+  path_csv: "path_profile.csv"
+  summary_csv: "connect_summary.csv"
+  cycles_csv: "connect_cycles.csv"
+  use_wandb: false
+  wandb_project: "optml-mode-connectivity"
+  wandb_entity: null

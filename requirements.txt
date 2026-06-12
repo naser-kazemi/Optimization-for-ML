@@ -1,0 +1,39 @@
+# Python dependencies for the OptML repo.
+#
+# Quick install (CPU / Apple Silicon):
+#     pip install -r requirements.txt
+#
+# For a specific CUDA build of PyTorch on the cluster, prefer install.sh, which
+# pulls torch from the matching index (e.g. cu130):
+#     pip install torch==2.9.1 torchvision==0.24.1 torchaudio==2.9.1 \
+#         --index-url https://download.pytorch.org/whl/cu130
+# The torch pins below otherwise resolve to the default wheel for your platform.
+
+# --- Core: model + training (train.py, connect.py, models.py) ---
+torch==2.9.1
+torchvision==0.24.1
+torchaudio==2.9.1
+hydra-core==1.3.2
+omegaconf==2.3.0
+numpy==2.4.1
+
+# --- Data pipeline (data.py) ---
+datasets
+tokenizers
+tqdm==4.67.1
+
+# --- Logging (utils/logging.py); optional, imported lazily with graceful fallback ---
+wandb
+
+# --- Reports / plotting (reports/*.py) ---
+pandas==2.3.3
+matplotlib==3.10.7
+
+# --- Tests (tests/) ---
+pytest==9.0.3
+
+# --- Additional deps from the original baseline environment (install.sh) ---
+transformers
+jaxtyping
+kornia
+Pillow==12.0.0

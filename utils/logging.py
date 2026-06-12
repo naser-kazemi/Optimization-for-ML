@@ -57,3 +57,15 @@ class WandbLogger:
                 wandb.log(metrics_dict)
             except Exception as e:
                 print(f"Error logging to wandb: {e}")
+
+    def log_curve(self, key, xs, ys, x_label="x", y_label="y", title=None):
+        """Log an (xs, ys) series as a wandb line plot."""
+        if self.enabled:
+            try:
+                import wandb
+                table = wandb.Table(data=[[float(x), float(y)] for x, y in zip(xs, ys)],
+                                    columns=[x_label, y_label])
+                wandb.log({key: wandb.plot.line(table, x_label, y_label,
+                                                title=title or key)})
+            except Exception as e:
+                print(f"Error logging curve to wandb: {e}")
