@@ -126,3 +126,6 @@ After the experiment scripts finish, open the notebooks below to reproduce the a
 * /data/knezevic/Optimization-for-ML/notebooks/optimizer_comparison_analysis.ipynb
 * /data/knezevic/Optimization-for-ML/linear_regression/linear_regression/final_results/visualize_results.ipynb
 
+### Note
+
+Part of the codes in the repo, where the codes we have used for exploring the ideas and they were not used in the final report.
