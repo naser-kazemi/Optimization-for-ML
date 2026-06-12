@@ -15,7 +15,7 @@ from data import make_fixed_eval_batches, prepare_data
 from models import GPT
 from optim.neb import Path, measure_path
 from optim.param_vector import flatten_state_dict, make_nn_energy
-from train import build_gpt_config, get_device
+from _train import build_gpt_config, get_device
 
 
 def profile_segment(x0, x1, energy, points):

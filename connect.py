@@ -18,7 +18,7 @@ from optim.autoneb import AutoNEBConfig, autoneb_connect
 from optim.neb import Path, measure_path
 from optim.param_vector import (flatten_state_dict, load_vector_into_model,
                                 make_nn_energy, make_nn_energy_stream)
-from train import build_gpt_config, build_optimizer, get_autocast_context, get_device
+from _train import build_gpt_config, build_optimizer, get_autocast_context, get_device
 from utils.logging import CSVLogger, WandbLogger
 
 

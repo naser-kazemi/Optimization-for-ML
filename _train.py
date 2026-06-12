@@ -50,31 +50,53 @@ def get_autocast_context(device):
         return nullcontext()
 
 
+def build_gpt_config(cfg):
+    """Derive the GPTConfig (model_dim, num_heads) from the Hydra model config."""
+    base_dim = cfg.model.depth * cfg.model.aspect_ratio
+    model_dim = ((base_dim + cfg.model.head_dim - 1) // cfg.model.head_dim) * cfg.model.head_dim
+    num_heads = model_dim // cfg.model.head_dim
+    return GPTConfig(
+        sequence_len=cfg.model.max_seq_len,
+        vocab_size=cfg.model.vocab_size,
+        n_layer=cfg.model.depth,
+        n_head=num_heads,
+        n_kv_head=num_heads,
+        n_embd=model_dim,
+    )
+
+
+def _hidden_matrix_split(model):
+    """2-D hidden matrices vs everything else (embeddings, lm_head, gains)."""
+    adamw_ids = set()
+    for m in model.modules():
+        if isinstance(m, torch.nn.Embedding):
+            for p in m.parameters():
+                adamw_ids.add(id(p))
+    for p in model.lm_head.parameters():
+        adamw_ids.add(id(p))
+    matrix_params = [p for p in model.parameters() if p.ndim == 2 and id(p) not in adamw_ids]
+    other_params = [p for p in model.parameters() if p.ndim != 2 or id(p) in adamw_ids]
+    return matrix_params, other_params
+
+
+_ADAMNS_POINTS = {'adamns': 'momentum', 'adamgradns': 'grad', 'adamupdns': 'update'}
+
+
 def build_optimizer(model, cfg):
     """
-    Constructs the requested optimizer (AdamW, Muon, SGD, Adam).
+    Constructs the requested optimizer (AdamW, Muon, SGD, Adam, AdamNS family).
     """
     opt_type = cfg.optimizer.type.lower()
     lr = cfg.optimizer.lr
     weight_decay = cfg.optimizer.weight_decay
-    
+
     print(f"Building optimizer: {opt_type.upper()}")
     if opt_type == 'adamw':
         optimizer = torch.optim.AdamW(model.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=weight_decay)
     elif opt_type == 'muon':
         if hasattr(torch.optim, 'Muon'):
             # Precondition embeddings & heads with AdamW, rest with Muon
-            adamw_ids = set()
-            for m in model.modules():
-                if isinstance(m, torch.nn.Embedding):
-                    for p in m.parameters():
-                        adamw_ids.add(id(p))
-            for p in model.lm_head.parameters():
-                adamw_ids.add(id(p))
-            
-            muon_params = [p for p in model.parameters() if p.ndim == 2 and id(p) not in adamw_ids]
-            adamw_params = [p for p in model.parameters() if p.ndim != 2 or id(p) in adamw_ids]
-            
+            muon_params, adamw_params = _hidden_matrix_split(model)
             optimizer = [
                 torch.optim.Muon(muon_params, lr=cfg.optimizer.muon_lr, momentum=0.95),
                 torch.optim.AdamW(adamw_params, lr=lr, betas=(0.9, 0.95), weight_decay=weight_decay),
@@ -82,8 +104,18 @@ def build_optimizer(model, cfg):
         else:
             print("Warning: Muon not available in this PyTorch distribution. Falling back to AdamW.")
             optimizer = torch.optim.AdamW(model.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=weight_decay)
+    elif opt_type in _ADAMNS_POINTS:
+        from optim.adamns import AdamNSFamily
+        ns_lr = cfg.optimizer.get(f'{opt_type}_lr', lr)
+        matrix_params, adamw_params = _hidden_matrix_split(model)
+        optimizer = [
+            AdamNSFamily(matrix_params, lr=ns_lr, betas=(0.9, 0.95),
+                         weight_decay=weight_decay, ns_point=_ADAMNS_POINTS[opt_type]),
+            torch.optim.AdamW(adamw_params, lr=lr, betas=(0.9, 0.95), weight_decay=weight_decay),
+        ]
     elif opt_type == 'sgd':
-        optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, nesterov=True, weight_decay=weight_decay)
+        sgd_lr = cfg.optimizer.get('sgd_lr', lr)
+        optimizer = torch.optim.SGD(model.parameters(), lr=sgd_lr, momentum=0.9, nesterov=True, weight_decay=weight_decay)
     else:
         optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=(0.9, 0.95))
 
@@ -261,29 +293,32 @@ def main(cfg: DictConfig):
 
     print(f"Preparing dataset '{cfg.dataset.name}'...")
     train_data, val_data, tok_model, bos_id = prepare_data(
-        dataset_name=cfg.dataset.name, 
-        num_train_docs=cfg.dataset.num_train_docs, 
-        num_val_docs=cfg.dataset.num_val_docs, 
-        vocab_size=cfg.model.vocab_size
+        dataset_name=cfg.dataset.name,
+        num_train_docs=cfg.dataset.num_train_docs,
+        num_val_docs=cfg.dataset.num_val_docs,
+        vocab_size=cfg.model.vocab_size,
+        cache_dir=cfg.dataset.get('cache_dir', None),
     )
 
     # Compute transformer dimension parameters
-    base_dim = cfg.model.depth * cfg.model.aspect_ratio
-    model_dim = ((base_dim + cfg.model.head_dim - 1) // cfg.model.head_dim) * cfg.model.head_dim
-    num_heads = model_dim // cfg.model.head_dim
-
-    gpt_config = GPTConfig(
-        sequence_len=cfg.model.max_seq_len,
-        vocab_size=cfg.model.vocab_size,
-        n_layer=cfg.model.depth,
-        n_head=num_heads,
-        n_kv_head=num_heads,
-        n_embd=model_dim,
-    )
+    gpt_config = build_gpt_config(cfg)
 
     print("Initializing model architecture...")
     model = GPT(gpt_config).to(device)
-    model.init_weights()
+
+    # Shared initial weights: ensures every optimizer sweep starts from the
+    # exact same point in parameter space. The first run creates the checkpoint;
+    # all subsequent runs load it byte-for-byte regardless of seed/data config.
+    init_ckpt = cfg.training.get("init_checkpoint", None)
+    if init_ckpt and os.path.exists(init_ckpt):
+        model.load_state_dict(torch.load(init_ckpt, map_location=device))
+        print(f"Loaded shared initial weights from '{init_ckpt}'")
+    else:
+        model.init_weights()
+        if init_ckpt:
+            os.makedirs(os.path.dirname(init_ckpt) or ".", exist_ok=True)
+            torch.save(model.state_dict(), init_ckpt)
+            print(f"Saved shared initial weights to '{init_ckpt}'")
 
     if cfg.training.quantize_grads:
         print("Registering INT8 Gradient Quantization hooks...")
