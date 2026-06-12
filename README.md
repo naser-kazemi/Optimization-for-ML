@@ -93,10 +93,36 @@ For full-scale high-performance sweeps on NVIDIA GPUs, Hydra enables clean overr
 
 ---
 
-## 📈 Empirical Insights
+## 🔁 Reproducibility
 
-For a detailed analysis of our training results, including the validation trajectories showing WSD schedule transitions and loss landscape relaxation during the cosine decay warmdown phase, see our comprehensive [reports/project_report.md](reports/project_report.md) file.
+All experiment families in this repository can be reproduced with the shell scripts below.
 
-### Figure Previews:
-* **Loss & Perplexity Curves:** Track the Warmup, Stable, and Decay phases on training/validation curves.
-* **Hessian Geometry:** Analyze the spikes and drops of Hessian curvature sharpness ($\lambda_{max}$) and optimizer alignment patterns.
+* Optimizer comparison experiments:
+  ```bash
+  /data/knezevic/Optimization-for-ML/scripts/run_optimizer_comparison.sh
+  ```
+
+* Ablation experiments:
+  ```bash
+  /data/knezevic/Optimization-for-ML/scripts/run_ablation_adam.sh
+  /data/knezevic/Optimization-for-ML/scripts/run_ablation_muon.sh
+  ```
+
+* Linear regression experiments:
+  ```bash
+  /data/knezevic/Optimization-for-ML/linear_regression/run_linear.sh
+  ```
+
+For a one-command launcher that runs the experiment scripts in sequence, use:
+```bash
+python /data/knezevic/Optimization-for-ML/run.py
+```
+
+### Visualizations
+
+After the experiment scripts finish, open the notebooks below to reproduce the analysis figures:
+
+* /data/knezevic/Optimization-for-ML/notebooks/ablation_analysis.ipynb
+* /data/knezevic/Optimization-for-ML/notebooks/optimizer_comparison_analysis.ipynb
+* /data/knezevic/Optimization-for-ML/linear_regression/linear_regression/final_results/visualize_results.ipynb
+
