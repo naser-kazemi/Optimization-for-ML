@@ -1,0 +1,75 @@
+# Default Configuration for OptML Optimizer Geometry Experiments
+
+# Model configuration
+model:
+  depth: 8
+  aspect_ratio: 64
+  head_dim: 64
+  max_seq_len: 1024
+  vocab_size: 8192
+
+# Dataset configuration
+dataset:
+  name: "dclm-edu" # Options: "dclm-edu", "pleias-synth"
+  num_train_docs: 50000
+  num_val_docs: 2000
+
+# Training configuration
+training:
+  device: "auto" # Options: "auto", "cpu", "cuda", "mps"
+  device_batch_size: 16
+  total_batch_size: 131072 # 2**17 = 131072
+  max_steps: 1000          # Fixed number of training steps
+  eval_interval: 100       # Evaluate and log every k steps (at k, 2k, 3k, ...)
+  log_interval: 20         # Quick progress log every k steps
+  warmup_steps: 200        # Warmup steps for LR schedule
+  seed: 42
+  quantize_grads: false
+
+# Optimizer configuration
+optimizer:
+  # Options: "adamw", "adam", "muon", "sgd", "adam_ns", "adam_ns_grad", "adam_ns_update", "adam_ns_momentum"
+  type: "adamw"
+  lr: 3e-4
+  muon_lr: 0.02
+  weight_decay: 0.1
+
+# AdamNS configuration (Adam + Newton-Schulz orthogonalization)
+adam_ns:
+  ns_iters: 5              # Number of Newton-Schulz iterations
+  warmup_steps: 200        # Steps before applying orthogonalization
+
+# Logging configuration
+logging:
+  use_wandb: false
+  wandb_project: "optml-optimizer-geometry"
+  wandb_entity: null
+  csv_log_path: "metrics.csv"
+  output_dir: "geometry_results"
+
+# Geometry tracking configuration
+geometry:
+  top_k_hessian: 20        # Number of top Hessian eigenvalues to compute
+  top_k_subspace: 10       # Number of top gradient singular vectors for subspace analysis
+  log_interval: 10         # Log per-layer metrics every N steps
+  hessian_interval: 50     # Compute full Hessian spectrum every N steps (expensive)
+  lanczos_iterations: 30   # Number of Lanczos iterations for eigenvalue estimation
+
+# Spectral tracking configuration
+spectral:
+  enabled: true              # Enable spectral tracking
+  track_every: 100           # Compute spectral metrics every N steps
+  min_matrix_dim: 64         # Skip matrices smaller than this (no meaningful spectra)
+  energy_thresholds:         # Energy thresholds for effective rank computation
+    - 0.90
+    - 0.99
+  eps: 1.0e-6                # Numerical stability floor for singular values
+  delta_w_min_norm: 1.0e-8   # Skip delta_W if Frobenius norm < this (avoids noise at step 0)
+
+# Hessian spectrum tracking configuration
+hessian:
+  enabled: false              # Enable Hessian spectrum tracking
+  compute_interval: 100      # Compute full Hessian spectrum every N steps
+  top_k: 5                   # Number of top eigenvalues via power iteration
+  lanczos_iterations: 20     # Lanczos iterations for spectrum estimation
+  trace_samples: 5           # Hutchinson trace estimation samples
