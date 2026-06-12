@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
-# plot style
+# Set publication-quality style parameters
 plt.rcParams.update({
     "font.family": "sans-serif",
     "font.size": 11,
@@ -30,8 +30,8 @@ def main():
         
     df = pd.read_csv(csv_path)
     
-    # Each run restarts at step 0, so cumsum over those resets gives a run id.
-    # We plot the longest run.
+    # Identify distinct runs based on step resets (step = 0)
+    # We want to find the longest run to plot
     df['run_id'] = (df['step'] == 0).cumsum()
     run_lengths = df.groupby('run_id').size()
     best_run_id = run_lengths.idxmax()
@@ -42,7 +42,7 @@ def main():
     
     run_df = df[df['run_id'] == best_run_id].copy().reset_index(drop=True)
     
-    # Drop duplicate steps (e.g. repeated step 0s), keeping the last.
+    # Let's clean up any duplicate steps within the run if they exist (like the duplicate step 0s)
     run_df = run_df.drop_duplicates(subset=['step'], keep='last').reset_index(drop=True)
     
     steps = run_df['step']
@@ -88,7 +88,9 @@ def main():
     lines2, labels2 = ax2_right.get_legend_handles_labels()
     ax2.legend(lines + lines2, labels + labels2, loc="upper right", frameon=True, facecolor="white", edgecolor="none")
     
-    # Shade the WSD phases: warmup 0-6, stable 7-13, decay 13+.
+    # Annotate WSD Phases on ax2_right
+    # Let's find where Warmup, Stable, Decay occur
+    # Step 0-6: LR is 0.0 (Warmup) or building up, Step 7-13: LR is 1.0 (Stable), Step 14-17: LR decays
     ax2.axvspan(0, 6, color='#CCCCCC', alpha=0.15)
     ax2.text(3, perplexity.max() * 0.9, "WARMUP /\nSTABILIZE", color="#777777", fontsize=9, ha="center", fontweight="bold")
     ax2.axvspan(7, 13, color='#94C11F', alpha=0.08)
