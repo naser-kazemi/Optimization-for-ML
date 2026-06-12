@@ -19,9 +19,6 @@ from utils.metrics import compute_cosine_similarity
 from utils.logging import CSVLogger, WandbLogger
 
 def get_device(device_setting="auto"):
-    """
-    Selects CUDA, MPS, or CPU device automatically or uses override.
-    """
     if device_setting == "cpu":
         device = torch.device('cpu')
     elif device_setting == "cuda":
@@ -35,25 +32,18 @@ def get_device(device_setting="auto"):
             device = torch.device('mps')
         else:
             device = torch.device('cpu')
-    print(f"Detected environment device: {device}")
+    print(f"Using device: {device}")
     return device
 
 
 def get_autocast_context(device):
-    """
-    Returns appropriate autocast context for the active device.
-    """
     if device.type == 'cuda':
         return torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16)
-    else:
-        # MPS or CPU - fallback to nullcontext to avoid precision/support issues
-        return nullcontext()
+    # MPS and CPU autocast is flaky here, so skip it.
+    return nullcontext()
 
 
 def build_optimizer(model, cfg):
-    """
-    Constructs the requested optimizer (AdamW, Muon, SGD, Adam).
-    """
     opt_type = cfg.optimizer.type.lower()
     lr = cfg.optimizer.lr
     weight_decay = cfg.optimizer.weight_decay
@@ -89,19 +79,16 @@ def build_optimizer(model, cfg):
 
     if not isinstance(optimizer, list):
         optimizer = [optimizer]
-        
-    # Setup initial learning rate for scheduler tracking
+
+    # Remember the base LR so the scheduler can scale it each step.
     for opt in optimizer:
         for group in opt.param_groups:
             group['initial_lr'] = group['lr']
-            
+
     return optimizer
 
 
 def update_learning_rates(optimizer, multiplier):
-    """
-    Updates the learning rate for all parameter groups using the multiplier.
-    """
     for opt in optimizer:
         for group in opt.param_groups:
             group['lr'] = group['initial_lr'] * multiplier
@@ -109,9 +96,6 @@ def update_learning_rates(optimizer, multiplier):
 
 @torch.no_grad()
 def evaluate(model, val_loader, num_batches, device, autocast_ctx):
-    """
-    Evaluates loss and perplexity on the validation dataset.
-    """
     model.eval()
     total_loss = 0.0
     for _ in range(num_batches):
@@ -126,9 +110,6 @@ def evaluate(model, val_loader, num_batches, device, autocast_ctx):
 
 
 def run_training(cfg, model, train_loader, val_loader, optimizer, device):
-    """
-    Orchestrates the modularized training loop and metrics recording.
-    """
     csv_logger = CSVLogger(cfg.logging.csv_log_path)
     wandb_logger = WandbLogger(
         use_wandb=cfg.logging.use_wandb,
@@ -146,8 +127,8 @@ def run_training(cfg, model, train_loader, val_loader, optimizer, device):
     tokens_per_fwdbwd = cfg.training.device_batch_size * cfg.model.max_seq_len
     grad_accum_steps = max(1, cfg.training.total_batch_size // tokens_per_fwdbwd)
 
-    print(f"Starting training sweep: grad_accum_steps={grad_accum_steps}")
-    
+    print(f"Starting training: grad_accum_steps={grad_accum_steps}")
+
     while True:
         if device.type == 'cuda':
             torch.cuda.synchronize()
@@ -156,11 +137,9 @@ def run_training(cfg, model, train_loader, val_loader, optimizer, device):
             
         t0 = time.time()
 
-        # Zero gradients across all optimizers
         for opt in optimizer:
             opt.zero_grad(set_to_none=True)
 
-        # Micro-stepping gradient accumulation
         train_loss = 0.0
         for micro_step in range(grad_accum_steps):
             x, y = next(train_loader)
@@ -172,7 +151,6 @@ def run_training(cfg, model, train_loader, val_loader, optimizer, device):
 
         train_loss /= grad_accum_steps
 
-        # Learning rate scheduler
         progress = min(total_training_time / cfg.training.time_budget, 1.0) if cfg.training.time_budget > 0 else 0
         if cfg.training.use_wsd:
             lrm = get_wsd_lr_multiplier(progress, warmup_ratio=0.05, warmdown_ratio=0.2, final_lr_frac=0.0)
@@ -181,18 +159,16 @@ def run_training(cfg, model, train_loader, val_loader, optimizer, device):
         
         update_learning_rates(optimizer, lrm)
 
-        # Track delta_theta for geometric alignment
+        # Snapshot params before the step so we can measure delta_theta after it.
         prev_params = [p.clone().detach() for p in model.parameters() if p.requires_grad]
 
         for opt in optimizer:
             opt.step()
 
-        # Calculate parameter updates (delta_theta)
         delta_theta = [
             p.detach() - prev for p, prev in zip((p for p in model.parameters() if p.requires_grad), prev_params)
         ]
 
-        # Check for divergence
         if math.isnan(train_loss.item()) or train_loss.item() > 100:
             print(f"Training diverged at step {step}!")
             break
@@ -208,16 +184,11 @@ def run_training(cfg, model, train_loader, val_loader, optimizer, device):
         if step > warmup_steps:
             total_training_time += dt
 
-        # Periodic validation & Hessian curvature logging
         if (step + 1) % cfg.training.eval_interval == 0:
             val_loss, val_ppl = evaluate(model, val_loader, 10, device, autocast_ctx)
-            
-            # Compute top Hessian eigenvalue (lambda_max) and eigenvector (v_max)
             lambda_max, v_max = power_iteration(model, train_loader, num_iterations=5, device=device.type)
-            
-            # Compute similarity of update step with top eigenvector
             cos_sim = compute_cosine_similarity(delta_theta, v_max)
-            
+
             metrics = {
                 'step': step,
                 'train_loss': train_loss.item(),
@@ -243,12 +214,11 @@ def run_training(cfg, model, train_loader, val_loader, optimizer, device):
         if step > warmup_steps and total_training_time >= cfg.training.time_budget:
             break
 
-    print(f"Training completed successfully. Metrics written to '{cfg.logging.csv_log_path}'.")
+    print(f"Training done. Metrics written to '{cfg.logging.csv_log_path}'.")
 
 
 @hydra.main(version_base=None, config_path="config", config_name="config")
 def main(cfg: DictConfig):
-    # Set random seeds for reproducibility
     torch.manual_seed(cfg.training.seed)
     device = get_device(cfg.training.device)
     
@@ -267,7 +237,7 @@ def main(cfg: DictConfig):
         vocab_size=cfg.model.vocab_size
     )
 
-    # Compute transformer dimension parameters
+    # Round the model dimension up to a multiple of head_dim.
     base_dim = cfg.model.depth * cfg.model.aspect_ratio
     model_dim = ((base_dim + cfg.model.head_dim - 1) // cfg.model.head_dim) * cfg.model.head_dim
     num_heads = model_dim // cfg.model.head_dim
@@ -281,22 +251,19 @@ def main(cfg: DictConfig):
         n_embd=model_dim,
     )
 
-    print("Initializing model architecture...")
+    print("Initializing model...")
     model = GPT(gpt_config).to(device)
     model.init_weights()
 
     if cfg.training.quantize_grads:
-        print("Registering INT8 Gradient Quantization hooks...")
+        print("Registering INT8 gradient quantization hooks...")
         register_quantization_hooks(model)
 
-    # Build and prepare optimizer
     optimizer = build_optimizer(model, cfg)
 
-    # Dataloaders
     train_loader = make_dataloader(train_data, cfg.training.device_batch_size, cfg.model.max_seq_len, device)
     val_loader = make_dataloader(val_data, cfg.training.device_batch_size, cfg.model.max_seq_len, device)
 
-    # Start training sweep
     run_training(cfg, model, train_loader, val_loader, optimizer, device)
 
 

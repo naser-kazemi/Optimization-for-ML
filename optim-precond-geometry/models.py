@@ -5,7 +5,6 @@ from dataclasses import dataclass, asdict
 
 @dataclass
 class GPTConfig:
-    """All the hyperparameters that define the model architecture."""
     sequence_len: int = 1024    # Maximum context length
     vocab_size: int = 8192      # Number of tokens in the vocabulary
     n_layer: int = 8            # Number of transformer blocks
@@ -15,23 +14,15 @@ class GPTConfig:
 
 
 def rms_norm(x):
-    """
-    Root Mean Square Layer Normalization.
-    """
     return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + 1e-6)
 
 
 def has_ve(layer_idx, n_layer):
-    """
-    Determines if a layer should have Value Embeddings.
-    """
+    # Value embeddings on every other layer, anchored to the last layer.
     return layer_idx % 2 == (n_layer - 1) % 2
 
 
 def apply_rotary_emb(x, cos, sin):
-    """
-    Apply Rotary Position Embeddings (RoPE).
-    """
     d = x.shape[-1] // 2
     x1, x2 = x[..., :d], x[..., d:]
     y1 = x1 * cos + x2 * sin
