@@ -1,4 +1,17 @@
+from contextlib import nullcontext
+
 import torch
+
+
+def _math_sdpa_ctx():
+    """Force the MATH attention backend: the flash/mem-efficient SDPA kernels
+    don't implement the double-backward that HVP needs."""
+    try:
+        from torch.nn.attention import SDPBackend, sdpa_kernel
+        return sdpa_kernel(SDPBackend.MATH)
+    except Exception:
+        return nullcontext()
+
 
 def compute_hvp_reverse_over_reverse(model, data, targets, v):
     """
@@ -15,9 +28,7 @@ def compute_hvp_reverse_over_reverse(model, data, targets, v):
 
     # We must explicitly enable gradients to construct the computational graph,
     # as this function is often called within no_grad() evaluation blocks.
-    # Disable efficient attention backends that don't support double backward.
-    with torch.enable_grad(), \
-         torch.backends.cuda.sdp_kernel(enable_flash=False, enable_math=True, enable_mem_efficient=False):
+    with torch.enable_grad(), _math_sdpa_ctx():
         loss = model(data, targets=targets)
         grads = torch.autograd.grad(loss, params, create_graph=True, retain_graph=True)
 

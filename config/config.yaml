@@ -13,6 +13,9 @@ dataset:
   name: "dclm-edu" # Options: "dclm-edu", "pleias-synth"
   num_train_docs: 50000
   num_val_docs: 2000
+  # If set, tokenizer + tokenized tensors are cached here and reused across runs
+  # (required for a comparable loss function in connectivity experiments).
+  cache_dir: null
 
 # Training configuration
 training:
@@ -25,6 +28,10 @@ training:
   warmup_steps: 200        # Warmup steps for LR schedule
   seed: 42
   quantize_grads: false
+  # Path to shared initial weights. First run saves the freshly-initialized
+  # model here; later runs load it so every optimizer starts from the same
+  # point. Set to null to disable and re-initialize randomly each run.
+  init_checkpoint: "checkpoints/init.pt"
 
 # Optimizer configuration
 optimizer:

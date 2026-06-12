@@ -89,6 +89,9 @@ venv.bak/
 checkpoint/
 checkpoints/
 
+# Cached tokenizer + tokenized tensors for connectivity experiments
+data_cache/
+
 # Hydra run outputs and logs
 outputs/
 multirun/
